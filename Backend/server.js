@@ -11,14 +11,15 @@ dotenv.config();
 const app = express();
 
 // ============================================================
-// ATTACK LOG – ghi tất cả request vào file attack.log
+// ATTACK LOG
 // ============================================================
-const logStream = fs.createWriteStream('./attack.log', { flags: 'a' });
+const logStream = process.env.NODE_ENV === 'production'
+    ? process.stdout
+    : fs.createWriteStream('./attack.log', { flags: 'a' });
 
 app.use((req, res, next) => {
     const entry = `[${new Date().toISOString()}] ${req.method} ${req.url} | IP: ${req.ip} | UA: ${req.headers['user-agent']}\n`;
     logStream.write(entry);
-    process.stdout.write(entry);
     next();
 });
 
@@ -28,18 +29,20 @@ app.use((req, res, next) => {
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ============================================================
-// CORS – cho phép localhost + IP LAN 192.168.1.88
+// CORS
 // ============================================================
 const corsOptions = {
     origin: [
         'http://localhost:3000',
         'http://127.0.0.1:3000',
         'http://localhost:5173',
-        'http://192.168.1.88:3000',   // IP LAN Blue Team
-        'http://192.168.1.89:3000',   // IP LAN Red Team (nếu cần)
+        'http://192.168.1.88:3000',
+        'http://192.168.1.89:3000',
         'https://cinderlike-unduteously-korey.ngrok-free.dev',
         /\.ngrok-free\.dev$/,
-        /\.ngrok\.io$/
+        /\.ngrok\.io$/,
+        /\.railway\.app$/,      // thêm cho Railway
+        /\.up\.railway\.app$/   // thêm cho Railway
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -63,15 +66,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// SESSION – dùng HTTP cho LAN (không dùng HTTPS)
 app.use(session({
     secret: process.env.SESSION_SECRET || 'weak-secret-key',
     resave: true,
     saveUninitialized: true,
     cookie: {
-        secure: false,      // false vì LAN dùng HTTP
+        secure: process.env.NODE_ENV === 'production',
         httpOnly: false,
-        sameSite: 'lax',    // lax cho HTTP
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 24 * 60 * 60 * 1000
     }
 }));
@@ -104,18 +106,16 @@ app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).json({
         error: err.message,
-        stack: err.stack
+        stack: process.env.NODE_ENV === 'production' ? null : err.stack
     });
 });
 
 // ============================================================
-// START SERVER – bind 0.0.0.0 để nhận kết nối từ LAN
+// START SERVER
 // ============================================================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 Server running on port ${PORT}`);
     console.log(`📝 Local:   http://localhost:${PORT}/api`);
-    console.log(`🌐 LAN:     http://192.168.1.88:${PORT}/api`);
-    console.log(`📋 Log:     ./attack.log`);
     console.log(`⚠️  VULNERABLE SERVER – PHASE 1 (chưa patch)\n`);
 });
